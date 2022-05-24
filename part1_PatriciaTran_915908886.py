@@ -1,5 +1,6 @@
 from socket import *
 import time
+import math
 
 # IP address of the receiver. "" implies localhost
 IP_ADDRESS = ""
@@ -20,11 +21,21 @@ sequenceNumber = 0
 sequenceNumber += 1
 line = str(sequenceNumber) + "|"
 line += fileToSend.read(BUFFER_SIZE)
+allDelays = []
+allThroughput = []
 
 while line:
+    
+    startOfTransmissionOfPacket = time.time()
     sender_socket.sendto(line.encode(),(IP_ADDRESS, PORT))
     acknowledgementMessage, serverAddress = sender_socket.recvfrom(2048)
-
+    pointOfReceiptOfAck = time.time()
+    # check dup ack
+    delay = pointOfReceiptOfAck-startOfTransmissionOfPacket
+    allDelays.append(delay*1000)
+    throughput = BUFFER_SIZE/(delay/1000)
+    allThroughput.append(throughput)
+    
     print()
     print("Current Window: [" + str(sequenceNumber) + "]")
     print("Sequence Number of Packet Sent: " + str(sequenceNumber))
@@ -36,4 +47,9 @@ while line:
     if line:
         line = str(sequenceNumber) + "|" + line
 
+Delay = sum(allDelays) / len(allDelays)
+print("Average Delay = <" + str(Delay) + ">")
+Throughput = sum(allThroughput) / len(allThroughput)
+print("Average Throughput = <" + str(Throughput))
+print("Performance = " + str(math.log10(Throughput) - math.log10(Delay)))
 sender_socket.close()
