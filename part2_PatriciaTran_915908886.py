@@ -1,154 +1,196 @@
 from socket import *
 import time
 import math
+import matplotlib.pyplot as plt
 
-# IP address of the receiver. "" implies localhost
+# from jello import BUFFER_SIZE
+
 IP_ADDRESS = ""
-
-# Port number on localhost on which receiver runs
+print("inside part2")
 PORT = int(input("Enter the Port number you want your sender to run: "))
 
-# Size of the buffer, defining the maximum data that can be buffered for transmission at a time
-BUFFER_SIZE = 1000
+PACKET_SIZE = 1000
 
-# Initialize
 timeoutSeconds = 5
 windowSize = 5
 allDelays = []
 allThroughput = []
 
-
-# Instatiating a UDP Socket
 sender_socket = socket(AF_INET, SOCK_DGRAM)
 
-# Open text file to read
 fileToSend = open("./message.txt", "r")
 
 sequenceNumber = 0
 packetsToSend = []
-line = ""
-i = 0
-while i < windowSize:
+ackNumbersReceived = []
+packet = ""
+timeoutcount = 0
+
+# start reading first 5 packets
+for i in range(windowSize):
     sequenceNumber += 1
-    line = str(sequenceNumber) + "|"
-    line += fileToSend.read(BUFFER_SIZE)
-    packetsToSend.append(line)
-    i += 1
+    packet = str(sequenceNumber) + "|"
+    packet += fileToSend.read(PACKET_SIZE)
+    packetsToSend.append(packet)
 
-j = 0
-while line:
-    i = 0
+responseACKNumber = -1
+while True:
+    # sending packet to server 5 times
     allStartTransmissions = []
-    while i < windowSize:
-        startOfTransmissionOfPacket = time.time()
-        allStartTransmissions.append(startOfTransmissionOfPacket)
-        sender_socket.sendto(packetsToSend[j].encode(),(IP_ADDRESS, PORT))
-        i += 1
-        j += 1
+    for i in range(windowSize):
+        sender_socket.settimeout(timeoutSeconds)
+        allStartTransmissions.append(time.time())
+        sender_socket.sendto(packetsToSend[sequenceNumber-windowSize+i].encode(),(IP_ADDRESS, PORT))
+    
+    resend = False # checks if the packet resent back because it was not received
+    breakOuterLoop = False
+    receivedACK = False
+    timeoutcheck = False
 
-    i = 0
-    y = j - 4
-    while i < windowSize:
-        currentWindow = "["
-        for x in range(j-4, j+1):
-            currentWindow += str(x) + ", "
-        currentWindow += "]"
-        acknowledgementMessage, serverAddress = sender_socket.recvfrom(2048)
+    while True:
+        receivedACK = False
+        try:
+            if not resend:
+                # receives response # from packets sent before
+                for i in range(windowSize):
+                    # print("inside try not resend")
+                    response, serverAddress = sender_socket.recvfrom(2048)
+                    delay = time.time() - allStartTransmissions[i]
+                    allDelays.append(delay * 1000)
+                    allThroughput.append(PACKET_SIZE/ (delay/1000))
+                    # print("response: " + str(response.decode()))
+                    ackNumbersReceived.append(int(response.decode()))
+            # receives response # of missed packet
+            else: 
+                # print("inside resend")
+                response, serverAddress = sender_socket.recvfrom(2048)
+                if timeoutcheck == True:
+                    # print("ack Num: " + str(response.decode()))
+                    ackNumbersReceived.append(int(response.decode()))
+                    # print("len ackNum: " + str(len(ackNumbersReceived)))
+                #     timeoutcheck = False
+                    
+                    
+                # resend = False
+                
 
-        pointOfReceiptOfAck = time.time()
-        startTime = allStartTransmissions[i]
-        delay = pointOfReceiptOfAck-startTime
-        allDelays.append(delay*1000) # Multiply by 1000 to go from seconds to milliseconds
-        throughput = (BUFFER_SIZE*8)/(delay/1000) # * 8 to go bytes to bits and / 1000 to go milliseconds to seconds
-        allThroughput.append(throughput)
+            responseACKNumber = int(response.decode())
+            if type(responseACKNumber) is int and responseACKNumber >= 0:
+                receivedACK = True
+                # if responseACKNumber == sequenceNumber:
+                    # print("successfully sent and received all")
+                    # print("move window over by 5")
+                # elif responseACKNumber < sequenceNumber:
+                    # print("resend responseACKNumber + 1 packet")
+                # elif responseACKNumber > sequenceNumber:
+                    # print("TO-DO")
+        except:
+            # Resend responseACKNumber + 1 packet
+            receivedACK = False
+            # timeoutcheck = True
+            # resend = True
+            # print("Failed to receive packet")
+            # print("Seq number: " + str(sequenceNumber))
+            # print("Response Ack Number: " + str(responseACKNumber))
+            # sequenceNumber = responseACKNumber
 
-        print()
-        print("Current Window: " + currentWindow)
-        print("Sequence Number of Packet Sent: " + str(y))
-        print("Acknowledgment Number Received: " + acknowledgementMessage.decode())
-        print()
+        
+        if receivedACK:
+            currentWindow = "["
+            for i in range(len(packetsToSend)-4, len(packetsToSend)+1):
+                currentWindow += str(i) + ", "
+            currentWindow += "]"
 
-        y += 1
-        i += 1
+            if not resend:
+                # print("inside if not resend")
+                for i in range(windowSize):
+                    # print("\n")
+                    sliced_text = slice(len(currentWindow)-3)
+                    print("Current Window: " + currentWindow[sliced_text] + "]")
+                    print("Sequence Number of Packet Sent: " + packetsToSend[sequenceNumber-windowSize+i].split("|")[0])
+                    # print("check sequenceNumber-windowSize+i = ", str(sequenceNumber-windowSize+i) + " len: " + str(len(ackNumbersReceived)))
+                    print("Acknowledgment Number Received: " + str(ackNumbersReceived[sequenceNumber-windowSize+i]))
+                    print("\n")
+            else:
+                # print("\n")
+                # print("inside resend")
+                sliced_text = slice(len(currentWindow)-3)
+                print("Current Window: " + currentWindow[sliced_text] + "]")
+                print("Sequence Number of Packet Sent: " + str(sequenceNumber+1))
+                print("Acknowledgment Number Received: " + str(responseACKNumber))
+                print("\n")
 
-    i = 0
-    while i < windowSize:
+            if resend == True:
+                sequenceNumber = responseACKNumber
+
+            elif responseACKNumber == sequenceNumber:
+                sequenceNumber = sequenceNumber
+                break
+            elif responseACKNumber < sequenceNumber:
+                sequenceNumber = responseACKNumber
+                resend = True
+            elif responseACKNumber > sequenceNumber:
+                sequenceNumber = responseACKNumber
+                break
+
+        else:
+            # timeout occured
+            timeoutcount = timeoutcount + 1
+            
+            sender_socket.settimeout(timeoutSeconds)
+            print("sequence Numbver: " + str(sequenceNumber))
+            sequenceNumber = responseACKNumber
+            print("sequence Numbver: " + str(sequenceNumber))
+            sender_socket.sendto(packetsToSend[sequenceNumber].encode(),(IP_ADDRESS, PORT))
+            resend = True
+            timeoutcheck = True
+            
+            continue
+
+
+
+        if sequenceNumber == len(packetsToSend):
+            # print("inside sequence number == len(packetsToSend")
+            break
+        elif sequenceNumber < len(packetsToSend):
+            # print("inside sequence number < len(packetsToSend")
+            sender_socket.settimeout(timeoutSeconds)
+            sender_socket.sendto(packetsToSend[sequenceNumber].encode(),(IP_ADDRESS, PORT))
+    for i in range(windowSize):
         sequenceNumber += 1
-        line = fileToSend.read(BUFFER_SIZE)
-        if line: # If we read in something then we can attach a sequence number to it
-            line = str(sequenceNumber) + "|" + line
-            packetsToSend.append(line)
-        i += 1
+        packet = str(sequenceNumber) + "|"
+        contentToAdd = fileToSend.read(PACKET_SIZE)
+        if not contentToAdd:
+            # print("inside not contentToAdd")
+            breakOuterLoop = True
+            break
+        else:
+            # print("inside contentToAdd")
+            packet += contentToAdd
+            packetsToSend.append(packet)
+    
+    # work on if the window is three packets left you send the window and end communication
+    if breakOuterLoop:
+        # print("breakOuterLoop")
+        break
+            
 
-# Calculate required metrics once entire message.txt file has been transmitted
 Delay = sum(allDelays) / len(allDelays)
 print("Average Delay = <" + str(Delay) + ">")
 Throughput = sum(allThroughput) / len(allThroughput)
 print("Average Throughput = <" + str(Throughput) + ">")
-print("Performance = " + str(math.log10(Throughput) - math.log10(Delay)))
-# # Create first packet to send
-# sequenceNumber = 0
-# sequenceNumber += 1
-# line = str(sequenceNumber) + "|"
-# line += fileToSend.read(BUFFER_SIZE)
-# sequenceNumber2 = sequenceNumber
-# sequenceNumber2 += 1
-# line2 = str(sequenceNumber2) + "|"
-# line2 += fileToSend.read(BUFFER_SIZE)
-
-# sender_socket.sendto(line.encode(),(IP_ADDRESS, PORT))
-# sender_socket.sendto(line2.encode(),(IP_ADDRESS, PORT))
-# acknowledgementMessage, serverAddress = sender_socket.recvfrom(2048)
-# print(acknowledgementMessage.decode())
-# acknowledgementMessage, serverAddress = sender_socket.recvfrom(2048)
-# print(acknowledgementMessage.decode())
-
-# allDelays = []
-# allThroughput = []
-
-# # Loop to send packets until we reach end of the file
-# while line:  
-#     # Send a receive
-#     sender_socket.settimeout(timeoutSeconds)
-#     startOfTransmissionOfPacket = time.time()
-#     sender_socket.sendto(line.encode(),(IP_ADDRESS, PORT))
-#     sender_socket.sendto(line2.encode(),(IP_ADDRESS, PORT))
-#     # sender_socket.sendto(line3.encode(),(IP_ADDRESS, PORT))
-#     # sender_socket.sendto(line4.encode(),(IP_ADDRESS, PORT))
-#     # sender_socket.sendto(line5.encode(),(IP_ADDRESS, PORT))
-#     try:
-#         acknowledgementMessage, serverAddress = sender_socket.recvfrom(2048)
-#         acknowledgementMessage2, serverAddress = sender_socket.recvfrom(2048)
-
-#         # Add stats for metrics
-#         pointOfReceiptOfAck = time.time()
-#         delay = pointOfReceiptOfAck-startOfTransmissionOfPacket
-#         allDelays.append(delay*1000) # Multiply by 1000 to go from seconds to milliseconds
-#         throughput = (BUFFER_SIZE*8)/(delay/1000) # * 8 to go bytes to bits and / 1000 to go milliseconds to seconds
-#         allThroughput.append(throughput)
-        
-#         # Print required information after packet is transmitted and ack is received
-#         print()
-#         print("Current Window: [" + str(sequenceNumber) + ", " + str(sequenceNumber2) + "]")
-#         print("Sequence Number of Packet Sent: " + str(sequenceNumber))
-#         print("Acknowledgment Number Received: " + acknowledgementMessage.decode())
-#         print()
-
-#         sequenceNumber += 1
-#         line = fileToSend.read(BUFFER_SIZE)
-#         sequenceNumber += 1
-#         line2 = fileToSend.read(BUFFER_SIZE)
-#         if line: # If we read in something then we can attach a sequence number to it
-#             line = str(sequenceNumber) + "|" + line
-#         if line2:
-#             line = str(sequenceNumber) + "|" + line
-#     except timeout:
-#         sender_socket.sendto(line.encode(),(IP_ADDRESS, PORT))
-
-# # Calculate required metrics once entire message.txt file has been transmitted
-# Delay = sum(allDelays) / len(allDelays)
-# print("Average Delay = <" + str(Delay) + ">")
-# Throughput = sum(allThroughput) / len(allThroughput)
-# print("Average Throughput = <" + str(Throughput) + ">")
-# print("Performance = " + str(math.log10(Throughput) - math.log10(Delay)))
+print("Performance = <" + str(math.log10(Throughput) - math.log10(Delay)) + ">")
 sender_socket.close()
+
+print("timeoutCount:" + str(timeoutcount))
+plt.plot(range(0, len(allDelays)), allDelays)
+plt.title('Plot of per-packet delays')
+plt.xlabel('Packets')
+plt.ylabel('Delays')
+plt.show()
+
+plt.plot(range(0, len(allThroughput)), allThroughput)
+plt.title('Plot of per-packet throughputs')
+plt.xlabel('Packets')
+plt.ylabel('Throughput')
+plt.show()
